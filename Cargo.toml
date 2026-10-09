@@ -2,6 +2,9 @@
 name = "sitecannon"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+description = "Study a website before you rebuild it: crawler, IA & SEO analysis, single-file client reports"
+repository = "https://github.com/vallafederico/sitecannon"
 
 [dependencies]
 anyhow = "1.0.104"

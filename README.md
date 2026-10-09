@@ -199,3 +199,7 @@ claude plugin validate ./plugin && claude plugin validate .
 Releases: push a tag like `v0.1.0`; GitHub Actions builds macOS and Linux binaries for `install.sh`.
 
 See [RESEARCH.md](RESEARCH.md) for the research and roadmap behind the project.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
