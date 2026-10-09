@@ -21,26 +21,36 @@ From `summary` and `issues`:
 
 ## 2. Prioritise URLs
 
-There's no traffic or backlink data in SiteCannon, so use internal signals and say that's what you
-did. Rank content pages by internal PageRank, inlinks, sitemap inclusion and click depth:
+Prefer real usage data. Check `analytics_status`; if nothing is loaded, strongly recommend connecting
+GA4 and Search Console (`analytics-setup` skill) before finalising a migration plan, ideally with
+12+ months of data.
+
+**With usage data**, rank by what the pages actually earn:
 
 ```sql
-SELECT url, title, round(pagerank,2) AS pagerank, inlinks, click_depth, in_sitemap, template_pattern
-FROM pages_full ORDER BY pagerank DESC
+SELECT url, title, sessions, key_events, revenue, search_clicks, search_impressions,
+       round(pagerank,2) AS pagerank, click_depth, template_pattern
+FROM page_performance
+ORDER BY key_events DESC, search_clicks DESC, sessions DESC
 ```
 
-Tier them: **Tier 1** is the top ~10% plus hubs and landing pages (manual mapping and QA); **Tier 2**
-is templated content (pattern rules); **Tier 3** is everything else (pattern rules plus a sample
-check). Recommend adding Search Console clicks and backlink data before launch to confirm Tier 1.
+Also pull `performance` → `opportunities.unmatched_traffic`: URLs that still get visits but aren't
+live pages (old redirects, broken URLs). Every one needs a working redirect in the new site.
+
+**Without usage data**, fall back to internal signals and say so: PageRank, inlinks, sitemap
+inclusion and click depth, from `pages_full`.
+
+Tier them: **Tier 1** is the pages with key events or revenue, the top ~10% by search clicks or sessions, and hubs and landing pages (manual mapping and QA). **Tier 2** is templated content with traffic (pattern rules plus spot checks). **Tier 3** is everything else (pattern rules plus a sample check). Backlink data, if the user has it, can promote pages to Tier 1.
 
 ## 3. Redirect-map skeleton
 
 Export every URL that needs a decision (`query`):
 
 ```sql
-SELECT url AS old_url, '' AS new_url, template_pattern AS template, round(pagerank,2) AS pagerank,
-       click_depth, in_sitemap, '' AS action, '' AS notes
-FROM pages_full ORDER BY pagerank DESC
+-- with usage data (otherwise use pages_full and drop the usage columns)
+SELECT url AS old_url, '' AS new_url, template_pattern AS template, sessions, key_events, search_clicks,
+       round(pagerank,2) AS pagerank, click_depth, '' AS tier, '' AS action, '' AS notes
+FROM page_performance ORDER BY key_events DESC, search_clicks DESC, sessions DESC
 ```
 
 Plus the existing redirects that must keep working: `SELECT url AS old_url, resolved_url FROM redirect_map`.
@@ -55,7 +65,8 @@ Before: fix the redirect debt and broken links; freeze the URL inventory; benchm
 the baseline). At launch: one-hop 301s, self-canonicals, robots.txt and noindex removed from
 production, new XML sitemap, titles, meta and structured data in the server HTML. After: re-crawl
 with SiteCannon into a new project and compare titles, status codes and redirects against the
-baseline; watch Search Console daily for 2 weeks, then weekly.
+baseline. Re-fetch analytics weekly and compare sessions and search clicks for Tier 1 URLs (old →
+new) against the pre-launch baseline. Watch Search Console daily for 2 weeks, then weekly.
 
 ## 5. Deliver
 

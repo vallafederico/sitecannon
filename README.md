@@ -13,6 +13,7 @@ for running audits end to end.
   - page sections typed as hero, features, FAQ and so on
   - topics found from the page text
   - near-duplicates and 19 SEO/IA checks
+- **Measure:** optional real usage data from Google Analytics 4 and Search Console, fetched with your Google login or imported from CSV exports, joined to every page. It shows what works and what doesn't: performance by template, topic, depth and section type, plus opportunities such as hidden winners, low-CTR snippets, striking-distance queries, and traffic to old URLs.
 - **Report:** one HTML file that works offline:
   - a visual card sitemap with SVG export
   - content anatomy and the interactive link graph
@@ -36,7 +37,8 @@ Set up SiteCannon (https://github.com/vallafederico/sitecannon) for me:
    Otherwise register an MCP server named "sitecannon" with command `sitecannon` and args ["mcp"]
    in your MCP configuration, and read the skills in plugin/skills/*/SKILL.md from the repo.
 3. Verify: `sitecannon tool list_projects` should print JSON. Then tell me the skills you can use
-   (site-audit, ia-review, content-audit, seo-migration, client-report, sitecannon-data).
+   (site-audit, ia-review, content-audit, seo-migration, client-report, analytics-setup,
+   performance-review, sitecannon-data).
 
 Don't crawl anything yet. I'll give you a site.
 ```
@@ -73,14 +75,28 @@ sitecannon report projects/example.com       # → projects/example.com/report.h
 sitecannon report projects/example.com --notes brief.md   # embed a strategy brief
 sitecannon query projects/example.com "SELECT * FROM broken_links"
 sitecannon reextract projects/example.com    # re-run extraction on stored HTML after upgrading
+
+# Real usage data (optional)
+sitecannon analytics fetch projects/example.com --ga4 123456789 --gsc sc-domain:example.com --days 90
+sitecannon analytics import projects/example.com landing-pages.csv     # GA4 / Search Console CSV exports
+sitecannon analytics performance projects/example.com                  # what works, what doesn't (JSON)
 ```
+
+`analytics fetch` uses your Google credentials, tried in this order:
+1. `SITECANNON_GOOGLE_TOKEN`
+2. Application Default Credentials: your own login via
+   `gcloud auth application-default login --scopes=https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/webmasters.readonly,https://www.googleapis.com/auth/cloud-platform`,
+   or a service-account key in `GOOGLE_APPLICATION_CREDENTIALS` that has been added to the GA4 property and the Search Console site
+3. the `gcloud` CLI
+
+Access is read-only, and the data stays in the local project database.
 
 Crawl options: `--max-pages` (1000), `--max-depth` (50), `--concurrency` (8), `--rps` (5),
 `--max-query-variants` (25), `--no-sitemaps`, `--no-html`, `--ignore-robots` (only with the owner's permission), `--force`.
 
 ### As an agent (tools)
 
-The same 12 tools are available three ways. All take JSON arguments and return JSON.
+The same 16 tools are available three ways. All take JSON arguments and return JSON.
 
 | Tool | What it returns |
 |---|---|
@@ -95,6 +111,10 @@ The same 12 tools are available three ways. All take JSON arguments and return J
 | `schema`, `query` | Table guide, and read-only SQL (DuckDB) |
 | `analyze` | Recompute the analysis |
 | `report` | Write the HTML report, optionally with a markdown brief (`notes`) |
+| `analytics_status` | Which usage data is loaded, its date range and match rate, and whether Google credentials are available |
+| `fetch_analytics` | Pull GA4 and Search Console data with the user's Google credentials |
+| `import_analytics` | Load GA4 / Search Console CSV exports |
+| `performance` | What works and what doesn't, from usage data joined to the crawl |
 
 ```sh
 sitecannon tools                                             # list with JSON schemas
@@ -113,6 +133,8 @@ curl -s localhost:7878/tools/issues -d '{"project":"example.com"}' -H 'content-t
 | `content-audit` | Produce the page types, content model, component list, and what to keep, merge or cut |
 | `seo-migration` | Prepare a migration: redirect debt, URL tiers, redirect-map CSV, launch checklist |
 | `client-report` | Write findings up for a prospect, client or product team and embed them in the report |
+| `analytics-setup` | Connect GA4 and Search Console (credentials or CSV exports) and check the data matched the crawl |
+| `performance-review` | Find what works and what doesn't from real usage data, and turn it into prioritised actions |
 | `sitecannon-data` | Reference: tools, tables, SQL cookbook and caveats |
 
 ## The report
@@ -120,6 +142,11 @@ curl -s localhost:7878/tools/issues -d '{"project":"example.com"}' -H 'content-t
 `sitecannon report` writes one self-contained HTML file. The data is embedded and no server is needed.
 
 - **Overview:** the strategy brief (if given), headline numbers, click depth, template mix, and issues by severity.
+- **Performance** (when usage data is loaded):
+  - sessions, engagement, key events and search clicks
+  - sessions per page by template and click depth
+  - template, topic and section-type comparisons
+  - opportunity lists
 - **Structure:**
   - a visual card sitemap built from URLs, menus or click paths, with SVG export
   - the same three trees as lists
@@ -158,6 +185,9 @@ After `analyze`:
 | `redirect_map` | Every redirecting URL and where it finally resolves |
 | `duplicate_content` | Groups of pages with near-identical main content |
 | `pages_full` | `pages_v` + `page_metrics` + template pattern in one view |
+| `page_performance` | With usage data loaded: each content page with sessions, engagement, key events, revenue, organic sessions, views, and search clicks, impressions, CTR and position |
+| `ga_landing`, `ga_channels`, `ga_pages`, `gsc_pages`, `gsc_queries` | Raw GA4 and Search Console rows |
+| `analytics_unmatched` | Visited URLs that aren't live crawled pages (old redirects, broken URLs, pages outside the crawl) |
 | `topics`, `page_topics` | Topics (TF-IDF + k-means over each page's own content sections, labelled by distinctive terms) and each page's topic and keywords |
 | `page_sections` | Every page split into top-level sections: type, role group, heading, words, links, images, repeated cards, topic |
 
@@ -181,6 +211,7 @@ src/
   tools.rs     agent tool registry (shared by CLI `tool`, MCP and HTTP)
   mcp.rs       MCP server over stdio
   serve.rs     HTTP API
+  analytics.rs GA4 / Search Console fetch and CSV import, Google auth, performance analysis
   urlnorm.rs   URL normalisation and site scope
 report/        TypeScript report app (Vite, sigma.js, d3), built to a single HTML file
 plugin/        Claude Code plugin: MCP server config + skills

@@ -14,7 +14,9 @@ const PROTOCOL_VERSION: &str = "2025-06-18";
 const INSTRUCTIONS: &str = "SiteCannon analyses websites before a rebuild. Typical flow: list_projects → (crawl if the \
 site isn't there yet) → summary → drill down with sitemap, templates, topics, issues, page and query → report \
 (optionally with a markdown brief in `notes`). Always mention coverage caveats from `summary` (capped crawls, refused \
-URLs). Only crawl sites the user asked about, and keep the default politeness settings.";
+URLs). For real usage data, check analytics_status, then fetch_analytics (GA4 / Search Console, \
+with the user's own Google credentials) or import_analytics (CSV exports), then performance for what works and \
+what doesn't. Only crawl sites the user asked about, and keep the default politeness settings.";
 
 fn response(id: &Value, result: Value) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "result": result})

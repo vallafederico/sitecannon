@@ -1,3 +1,4 @@
+mod analytics;
 mod analyze;
 mod content;
 mod crawl;
@@ -57,6 +58,9 @@ enum Cmd {
         #[arg(long)]
         notes: Option<PathBuf>,
     },
+    /// Real usage data: fetch from GA4 / Search Console, or import CSV exports
+    #[command(subcommand)]
+    Analytics(AnalyticsCmd),
     /// List the agent tools (JSON, with input schemas)
     Tools,
     /// Run one agent tool with JSON arguments and print its JSON result
@@ -89,6 +93,36 @@ enum Cmd {
     },
     /// Print a summary of a crawled project
     Info { project: PathBuf },
+}
+
+#[derive(Subcommand)]
+enum AnalyticsCmd {
+    /// Fetch GA4 and/or Search Console data with your Google credentials
+    Fetch {
+        project: PathBuf,
+        /// GA4 property id (Admin → Property settings), e.g. 123456789
+        #[arg(long)]
+        ga4: Option<String>,
+        /// Search Console property, e.g. sc-domain:example.com or https://www.example.com/
+        #[arg(long)]
+        gsc: Option<String>,
+        #[arg(long, default_value_t = 90)]
+        days: u32,
+    },
+    /// Import a GA4 or Search Console CSV export (kind detected from the columns)
+    Import {
+        project: PathBuf,
+        file: PathBuf,
+        /// ga4_landing, ga4_pages, gsc_pages or gsc_queries
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        append: bool,
+    },
+    /// Show loaded usage data and whether Google credentials are available
+    Status { project: PathBuf },
+    /// What works and what doesn't (JSON)
+    Performance { project: PathBuf },
 }
 
 #[derive(clap::Args)]
@@ -182,6 +216,27 @@ async fn main() -> Result<()> {
                 "Re-extracted {n} pages; {} templates covering {} pages, {} one-off pages",
                 s.templates, s.templated_pages, s.one_off_pages
             );
+            Ok(())
+        }
+        Cmd::Analytics(cmd) => {
+            let result = tokio::task::spawn_blocking(move || match cmd {
+                AnalyticsCmd::Fetch {
+                    project,
+                    ga4,
+                    gsc,
+                    days,
+                } => analytics::fetch(&project, ga4.as_deref(), gsc.as_deref(), days),
+                AnalyticsCmd::Import {
+                    project,
+                    file,
+                    kind,
+                    append,
+                } => analytics::import(&project, &file, kind.as_deref(), append),
+                AnalyticsCmd::Status { project } => analytics::status(&project),
+                AnalyticsCmd::Performance { project } => analytics::performance(&project),
+            })
+            .await??;
+            println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(())
         }
         Cmd::Tools => {

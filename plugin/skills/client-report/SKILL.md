@@ -28,6 +28,9 @@ Ask, or infer from context:
 ## Summary
 2–4 sentences: the situation, the biggest opportunity, the recommended direction.
 
+## What's working (when usage data is loaded)
+2–4 bullets from the `performance-review` skill: what earns visits and conversions, with numbers.
+
 ## What we found
 3–6 findings, most important first. Each one:
 **Plain-language headline.** One or two sentences of evidence (numbers, an example).
@@ -54,5 +57,5 @@ risks to manage.
 
 1. Draft the brief and show it to the user if they want to review it first.
 2. Call `report` with `notes` set to the markdown (or `notes_file` with a path).
-3. Return the file path and suggest which tabs to walk the client through: Overview → Structure
-   (visual sitemap) → Content (page anatomy) → Issues.
+3. Return the file path and suggest which tabs to walk the client through: Overview → Performance
+   (if usage data is loaded) → Structure (visual sitemap) → Content (page anatomy) → Issues.

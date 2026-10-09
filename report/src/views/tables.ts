@@ -78,26 +78,27 @@ export function templates(d: ReportData): HTMLElement[] {
 
 export function pages(d: ReportData): HTMLElement[] {
   const p = d.pages;
+  const u = d.usage;
   const tpl = new Map(d.templates.map((t) => [t.id, t.pages > 1 ? `#${t.id} ${t.pattern.split(" · ")[0]}` : "one-off"]));
-  const rows: Cell[][] = p.url.map((u, i) => [
-    u, p.title[i], p.template[i] == null ? null : tpl.get(p.template[i]!) ?? null, p.depth[i], p.pagerank[i], p.inlinks[i], p.main_words[i], p.indexability[i], p.in_sitemap[i],
+  const rows: Cell[][] = p.url.map((url, i) => [
+    url, p.title[i], p.template[i] == null ? null : tpl.get(p.template[i]!) ?? null, p.depth[i], p.pagerank[i], p.inlinks[i], p.main_words[i],
+    ...(u ? [u.sessions[i], u.search_clicks[i]] : []),
+    p.indexability[i], p.in_sitemap[i],
   ]);
+  const columns: Column[] = [
+    { label: "Page", render: (v) => link(v as string, pathOf(v as string)) },
+    { label: "Title" },
+    { label: "Template" },
+    { label: "Depth", numeric: true },
+    { label: "PageRank", numeric: true },
+    { label: "Links in", numeric: true },
+    { label: "Words", numeric: true },
+    ...(u ? [{ label: "Sessions", numeric: true }, { label: "Search clicks", numeric: true }] : []),
+    { label: "Indexability" },
+    { label: "In sitemap" },
+  ];
   return [
     section("All pages", `Every HTML page that answered 200, ordered by internal PageRank. ${fmt.int(p.url.length)} pages.`,
-      dataTable(
-        [
-          { label: "Page", render: (v) => link(v as string, pathOf(v as string)) },
-          { label: "Title" },
-          { label: "Template" },
-          { label: "Depth", numeric: true },
-          { label: "PageRank", numeric: true },
-          { label: "Links in", numeric: true },
-          { label: "Words", numeric: true },
-          { label: "Indexability" },
-          { label: "In sitemap" },
-        ],
-        rows,
-        { pageSize: 50 },
-      )),
+      dataTable(columns, rows, { pageSize: 50 })),
   ];
 }

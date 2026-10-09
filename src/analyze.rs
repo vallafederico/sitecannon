@@ -281,6 +281,9 @@ pub fn run(project: &Path, opts: &Options) -> Result<Summary> {
     let topics = content::run(&conn, &urls, &htmls, &template_of)?;
     conn.execute_batch(ANALYSIS_VIEWS)?;
     conn.execute_batch("CHECKPOINT")?;
+    drop(conn);
+    // Usage data loaded earlier joins against the freshly rebuilt tables.
+    crate::analytics::refresh(project)?;
 
     Ok(Summary {
         homepage: pages[home].url.clone(),

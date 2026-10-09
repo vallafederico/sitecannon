@@ -31,6 +31,10 @@ Projects live under `$SITECANNON_HOME` (default `./projects`). A project is name
 | `schema` / `query` | Read-only DuckDB SQL for anything the other tools don't answer (≤500 rows) |
 | `analyze` | Recompute analysis (rarely needed; crawl already does it) |
 | `report` | Write the single-file HTML report; `notes` embeds your markdown brief at the top |
+| `analytics_status` | Which usage data is loaded (GA4, Search Console), date range, match rate, credentials available |
+| `fetch_analytics` | Pull GA4 and/or Search Console data with the user's Google credentials |
+| `import_analytics` | Load GA4 / Search Console CSV exports (kind detected from columns) |
+| `performance` | What works and what doesn't: by template, topic, depth, section type, plus opportunity lists |
 
 ## Concepts
 
@@ -49,7 +53,7 @@ Projects live under `$SITECANNON_HOME` (default `./projects`). A project is name
 - **Capped crawl** (`urls_crawled >= max_pages`): orphan, inlink and sitemap findings are partial.
 - **Refused URLs** (401/403/429): bot protection, not missing pages. They're kept out of broken links.
 - **JavaScript-built content**: the crawler reads server HTML. Pages assembled client-side may show missing titles or few sections. Platform `streaming-ssr` means content arrives in chunks after the footer.
-- **Estimates, not analytics**: there's no traffic, rankings or backlink data. "Value" here means internal link equity, depth and content, not visits.
+- **Usage data is optional**: without GA4 / Search Console, "value" means internal link equity, depth and content, not visits. With it, state the date range, sources and `share_matched`. Analytics undercounts where consent banners block tracking, so compare ratios, not totals.
 
 ## SQL cookbook
 
@@ -82,6 +86,19 @@ SELECT url, resolved_url FROM redirect_map;
 
 -- Old-host or old-path links still used internally
 SELECT to_url, count(*) links, count(DISTINCT from_url) pages FROM redirected_links GROUP BY 1 ORDER BY 2 DESC;
+
+-- With usage data: page types that earn their keep (per page, not totals)
+SELECT template_pattern, count(*) pages, round(sum(sessions)/count(*),1) sessions_per_page,
+       round(sum(engaged_sessions)/nullif(sum(sessions),0),3) engagement, sum(key_events) key_events
+FROM page_performance GROUP BY 1 ORDER BY sessions_per_page DESC;
+
+-- Queries a page almost ranks for
+SELECT query, page_url, impressions, position FROM gsc_queries WHERE position BETWEEN 4 AND 20 ORDER BY impressions DESC;
 ```
+
+Usage tables (after `fetch_analytics` / `import_analytics`): `page_performance` (one row per
+content page with sessions, engaged_sessions, engagement_rate, key_events, revenue, organic_sessions,
+views, search_clicks/impressions/ctr/position), raw `ga_landing`, `ga_channels`, `ga_pages`,
+`gsc_pages`, `gsc_queries`, `analytics_unmatched` and `analytics_meta`.
 
 Use `DESCRIBE <table>` through `query` for exact columns.

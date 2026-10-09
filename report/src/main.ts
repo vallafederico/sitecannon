@@ -5,6 +5,7 @@ import { h } from "./ui";
 import { contentView } from "./views/content";
 import { graphView } from "./views/graph";
 import { overview } from "./views/overview";
+import { performanceView } from "./views/performance";
 import { structure } from "./views/structure";
 import { issues, pages, templates } from "./views/tables";
 
@@ -46,6 +47,8 @@ async function start() {
     localStorage.setItem("sc-theme", next);
   });
 
+  // The Performance tab only exists when real usage data was loaded.
+  if (data.performance) TABS.splice(1, 0, ["performance", "Performance"]);
   const nav = h("nav", { class: "tabs", "aria-label": "Report sections" });
   for (const [key, label] of TABS) nav.append(h("a", { href: `#${key}` }, label));
   const main = h("main");
@@ -81,6 +84,7 @@ function build(key: string, d: ReportData, arg?: string): HTMLElement[] {
   switch (key) {
     case "structure": return structure(d);
     case "content": return contentView(d);
+    case "performance": return performanceView(d);
     case "graph": return graphView(d);
     case "templates": return templates(d);
     case "issues": return issues(d, arg);

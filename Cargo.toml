@@ -1,6 +1,6 @@
 [package]
 name = "sitecannon"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Study a website before you rebuild it: crawler, IA & SEO analysis, single-file client reports"
@@ -11,6 +11,7 @@ anyhow = "1.0.104"
 axum = "0.8.9"
 chrono = "0.4.45"
 clap = { version = "4.6.7", features = ["derive"] }
+csv = "1.4.0"
 dom_smoothie = "0.18.2"
 duckdb = { version = "1.10506.0", features = ["bundled", "chrono", "json", "parquet"] }
 ego-tree = "0.11.0"
@@ -18,11 +19,12 @@ flate2 = "1.1.10"
 futures = "0.3.34"
 htmd = "0.5.5"
 indicatif = "0.18.6"
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 quick-xml = "0.42.0"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "zstd", "http2", "charset", "stream"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "zstd", "http2", "charset", "stream", "blocking", "json", "form"] }
 scraper = "0.27.0"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
 texting_robots = "0.2.2"
 tokio = { version = "1.53.2", features = ["full"] }
 url = "2.5.8"

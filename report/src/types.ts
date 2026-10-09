@@ -57,6 +57,46 @@ export interface Sections {
   topic: (number | null)[];
 }
 
+export interface PerfGroup {
+  key: number | string | null;
+  label: string;
+  pages: number;
+  pages_with_sessions: number;
+  sessions: number | null;
+  sessions_per_page: number | null;
+  engagement_rate: number | null;
+  key_events_per_session: number | null;
+  key_events: number | null;
+  search_clicks: number | null;
+  search_ctr: number | null;
+}
+
+export interface Performance {
+  sources: { source: string; detail: string | null; date_start: string | null; date_end: string | null; method: string }[];
+  totals: Record<string, number | null> | null;
+  matched: Cell;
+  by_template: PerfGroup[];
+  by_topic: PerfGroup[];
+  by_depth: PerfGroup[];
+  by_section: {
+    section_type: string; pages_with: number; pages_without: number;
+    engagement_with: number | null; engagement_without: number | null;
+    key_events_per_session_with: number | null; key_events_per_session_without: number | null;
+  }[];
+  opportunities: Record<string, { description: string; count: number; rows: Record<string, Cell>[] }>;
+  caveats: string[];
+}
+
+/** Per-page usage, aligned with `pages`. */
+export interface Usage {
+  sessions: (number | null)[];
+  engagement_rate: (number | null)[];
+  key_events: (number | null)[];
+  search_clicks: (number | null)[];
+  search_impressions: (number | null)[];
+  search_position: (number | null)[];
+}
+
 export interface Issue {
   id: string;
   title: string;
@@ -94,4 +134,6 @@ export interface ReportData {
   issues: Issue[];
   /** Strategy brief in markdown, written by an analyst or agent (`report --notes`). */
   notes?: string | null;
+  performance?: Performance | null;
+  usage?: Usage | null;
 }

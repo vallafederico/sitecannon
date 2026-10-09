@@ -279,3 +279,5 @@ table.heatmap td.step-3, table.heatmap td.step-4 { color: #fff; }
 .notes p, .notes li { color: var(--text-primary); }
 .notes table { margin: 8px 0; }
 .notes code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+
+.notice.info { border-left-color: var(--accent); }

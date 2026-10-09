@@ -348,6 +348,13 @@ pub fn run(project: &Path, out: Option<PathBuf>, json_only: bool, notes: Option<
         }));
     }
 
+    let performance = if crate::analytics::has_data(project) {
+        crate::analytics::performance(project).ok()
+    } else {
+        None
+    };
+    let usage = crate::analytics::page_columns(project, &urls)?;
+
     let data = json!({
         "generated_at": chrono::Utc::now().to_rfc3339(),
         "site": {
@@ -366,6 +373,9 @@ pub fn run(project: &Path, out: Option<PathBuf>, json_only: bool, notes: Option<
         "issues": issues,
         // Agent- or analyst-written strategy brief (markdown), shown first on the overview.
         "notes": notes,
+        // Real usage data (GA4 / Search Console) when loaded.
+        "performance": performance,
+        "usage": usage,
     });
 
     let default_name = if json_only { "report.json" } else { "report.html" };

@@ -36,14 +36,17 @@ for design-system scoping and estimates.
 
 ## 4. Keep, merge, cut
 
+If usage data is loaded (`analytics_status`), base these calls on it: `performance` gives sessions,
+engagement and key events per template and topic, plus `no_traffic`, `poor_engagement` and
+`hidden_winners` lists. A thin page with steady traffic is a keep-and-improve, not a cut.
+
 - **Thin pages** (under 150 words of main content): enrich, merge into a parent, or noindex. Say which per group.
 - **Near-duplicates and duplicate titles:** consolidate, or differentiate.
 - **Topics with many small pages:** candidates to merge into hubs.
 - Never recommend cutting a page with high internal equity (`pagerank` > 1, many inlinks) without flagging the redirect it needs.
 
-Section types and topics are heuristic; spot-check before stating anything as fact. There's no
-traffic data, so "low value" means low internal equity and little content, not low visits.
-Say so.
+Section types and topics are heuristic; spot-check before stating anything as fact. Without
+usage data, "low value" means low internal equity and little content, not low visits. Say so.
 
 ## 5. Deliver
 

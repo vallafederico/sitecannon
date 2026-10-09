@@ -1,7 +1,7 @@
 {
   "name": "sitecannon",
   "displayName": "SiteCannon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Study a website before you rebuild it: crawl, sitemaps, IA, content, SEO migration risk and single-file client reports. Needs the `sitecannon` binary on PATH.",
   "author": {
     "name": "Federico Valla",

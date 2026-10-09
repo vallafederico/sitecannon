@@ -10,7 +10,7 @@ use serde_json::{Map, Value, json};
 use url::Url;
 
 use crate::query::{self, Table};
-use crate::{analyze, crawl, report, store};
+use crate::{analytics, analyze, crawl, report, store};
 
 pub const DEFAULT_UA: &str = concat!("SiteCannon/", env!("CARGO_PKG_VERSION"), " (site audit crawler)");
 const QUERY_ROW_CAP: usize = 500;
@@ -116,6 +116,40 @@ pub const TOOLS: &[Tool] = &[
     Tool {
         name: "topics",
         description: "Topics discovered from page text, with key terms, page counts, where they live (URL sections and templates) and example pages.",
+        schema: || json!({"type": "object", "required": ["project"], "properties": {"project": project_prop()}}),
+    },
+    Tool {
+        name: "analytics_status",
+        description: "What usage data (GA4, Search Console) a project has, its date range, how much of it matches crawled pages, and whether Google credentials are available on this machine.",
+        schema: || json!({"type": "object", "required": ["project"], "properties": {"project": project_prop()}}),
+    },
+    Tool {
+        name: "fetch_analytics",
+        description: "Pull real usage data into a project with the user's Google credentials: GA4 (sessions, engagement, key events, revenue, channels by landing page; views by page) and/or Search Console (clicks, impressions, CTR, position by page and by query). Read-only. Only for properties the user owns or has been given access to.",
+        schema: || {
+            json!({"type": "object", "required": ["project"], "properties": {
+                "project": project_prop(),
+                "ga4_property": {"type": "string", "description": "GA4 property id, e.g. 123456789 (Admin → Property settings)"},
+                "gsc_site": {"type": "string", "description": "Search Console property: sc-domain:example.com or https://www.example.com/"},
+                "days": {"type": "integer", "default": 90}
+            }})
+        },
+    },
+    Tool {
+        name: "import_analytics",
+        description: "Import a GA4 or Search Console CSV export into a project (no credentials needed). The kind is detected from the columns: GA4 landing pages (sessions…), GA4 pages (views…), Search Console pages or queries (clicks, impressions…).",
+        schema: || {
+            json!({"type": "object", "required": ["project", "file"], "properties": {
+                "project": project_prop(),
+                "file": {"type": "string", "description": "Path to the CSV file"},
+                "kind": {"type": "string", "enum": ["ga4_landing", "ga4_pages", "gsc_pages", "gsc_queries"], "description": "Override detection"},
+                "append": {"type": "boolean", "default": false, "description": "Add to existing rows instead of replacing them"}
+            }})
+        },
+    },
+    Tool {
+        name: "performance",
+        description: "What works and what doesn't, from real usage data joined to the crawl: performance by template, topic, click depth and section type, plus opportunity lists (hidden winners, over-promoted pages, top converters, poor engagement, traffic to unmatched URLs, zero-traffic pages, low-CTR snippets, striking-distance queries).",
         schema: || json!({"type": "object", "required": ["project"], "properties": {"project": project_prop()}}),
     },
     Tool {
@@ -275,6 +309,25 @@ pub fn call(name: &str, args: &Value) -> Result<Value> {
         ),
         "templates" => templates(&project_arg(args)?),
         "topics" => topics(&project_arg(args)?),
+        "analytics_status" => analytics::status(&project_arg(args)?),
+        "fetch_analytics" => {
+            let p = project_arg(args)?;
+            ensure_analysed(&p)?;
+            let days = args.get("days").and_then(Value::as_u64).unwrap_or(90) as u32;
+            analytics::fetch(&p, arg_str(args, "ga4_property"), arg_str(args, "gsc_site"), days)
+        }
+        "import_analytics" => {
+            let p = project_arg(args)?;
+            ensure_analysed(&p)?;
+            let file = arg_str(args, "file").ok_or_else(|| anyhow!("missing `file`"))?;
+            let append = args.get("append").and_then(Value::as_bool).unwrap_or(false);
+            analytics::import(&p, Path::new(file), arg_str(args, "kind"), append)
+        }
+        "performance" => {
+            let p = project_arg(args)?;
+            ensure_analysed(&p)?;
+            analytics::performance(&p)
+        }
         "report" => {
             let p = project_arg(args)?;
             ensure_analysed(&p)?;
@@ -429,10 +482,27 @@ fn summary(p: &Path) -> Result<Value> {
         "templates": templates, "one_off_pages": one_offs, "topics": topics,
         "issues": issues.into_iter().filter(|i| i["count"].as_i64().unwrap_or(0) > 0).collect::<Vec<_>>(),
         "top_pages": top_pages,
+        "usage_data": usage_highlights(p),
     }))
 }
 
 /// Templates with their URL shapes and most common section at each position.
+/// Short performance digest when GA4/Search Console data is loaded; a hint otherwise.
+fn usage_highlights(p: &Path) -> Value {
+    if !analytics::has_data(p) {
+        return json!("none loaded; use fetch_analytics or import_analytics for real usage data");
+    }
+    match analytics::performance(p) {
+        Ok(perf) => json!({
+            "sources": perf["sources"], "totals": perf["totals"], "matched": perf["matched"],
+            "by_template": perf["by_template"].as_array().map(|a| a.iter().take(8).cloned().collect::<Vec<_>>()),
+            "opportunity_counts": perf["opportunities"].as_object().map(|o| o.iter().map(|(k, v)| (k.clone(), v["count"].clone())).collect::<serde_json::Map<_, _>>()),
+            "next": "call performance for the full breakdown and opportunity lists",
+        }),
+        Err(e) => json!({"error": format!("{e:#}")}),
+    }
+}
+
 fn templates_rows(p: &Path, limit: usize) -> Result<Vec<Value>> {
     let mut rows = q(p, &format!(
         "SELECT t.template_id AS id, t.pages, t.pattern AS url_shapes, t.example_url AS example,
@@ -738,6 +808,26 @@ const TABLES: &[(&str, &str)] = &[
         "Groups of pages with near-identical main content",
     ),
     ("page_html", "Raw HTML (zstd BLOB); not useful from SQL"),
+    (
+        "page_performance",
+        "After loading usage data: each content page with sessions, engaged_sessions, engagement_rate, key_events, revenue, organic_sessions, views, search_clicks/impressions/ctr/position, plus template, topic, depth, pagerank",
+    ),
+    (
+        "ga_landing, ga_channels, ga_pages",
+        "Raw GA4 rows (host, path, metrics); channels = sessions per landing page per default channel group",
+    ),
+    (
+        "gsc_pages, gsc_queries",
+        "Raw Search Console rows by page, and by page + query",
+    ),
+    (
+        "analytics_unmatched",
+        "Landing paths with sessions that aren't live crawled pages (old/redirecting/broken/not crawled)",
+    ),
+    (
+        "analytics_meta",
+        "Which usage sources are loaded, date ranges, method (api/csv)",
+    ),
 ];
 
 fn schema() -> Value {

@@ -43,6 +43,7 @@ pub fn to_json(v: &Value) -> serde_json::Value {
         Value::UBigInt(n) => json!(n),
         Value::Float(n) => json!(n),
         Value::Double(n) => json!(n),
+        Value::Decimal(d) => json!(d.to_string().parse::<f64>().unwrap_or(0.0)),
         Value::Text(s) => {
             // JSON columns come back as text; inline them as structured values.
             let t = s.trim_start();
