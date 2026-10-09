@@ -1,0 +1,4 @@
+/target
+/projects
+*.duckdb.wal
+.DS_Store

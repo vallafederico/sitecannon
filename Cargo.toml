@@ -1,0 +1,26 @@
+[package]
+name = "sitecannon"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+clap = { version = "4.6.7", features = ["derive"] }
+dom_smoothie = "0.18.2"
+duckdb = { version = "1.10506.0", features = ["bundled", "chrono", "json", "parquet"] }
+ego-tree = "0.11.0"
+flate2 = "1.1.10"
+futures = "0.3.34"
+htmd = "0.5.5"
+indicatif = "0.18.6"
+quick-xml = "0.42.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "zstd", "http2", "charset", "stream"] }
+scraper = "0.27.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+texting_robots = "0.2.2"
+tokio = { version = "1.53.2", features = ["full"] }
+url = "2.5.8"
+xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
+zstd = "0.14.0"
