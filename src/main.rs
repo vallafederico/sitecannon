@@ -3,12 +3,15 @@ mod content;
 mod crawl;
 mod discover;
 mod extract;
+mod mcp;
 mod model;
 mod query;
 mod reextract;
 mod report;
+mod serve;
 mod store;
 mod templates;
+mod tools;
 mod urlnorm;
 
 use std::path::PathBuf;
@@ -17,8 +20,6 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use url::Url;
-
-const DEFAULT_UA: &str = concat!("SiteCannon/", env!("CARGO_PKG_VERSION"), " (site audit crawler)");
 
 #[derive(Parser)]
 #[command(name = "sitecannon", version, about = "Study a website before you rebuild it")]
@@ -52,6 +53,27 @@ enum Cmd {
         /// Write the report data as JSON instead of HTML
         #[arg(long)]
         json: bool,
+        /// Markdown file with a strategy brief to embed at the top of the report
+        #[arg(long)]
+        notes: Option<PathBuf>,
+    },
+    /// List the agent tools (JSON, with input schemas)
+    Tools,
+    /// Run one agent tool with JSON arguments and print its JSON result
+    Tool {
+        name: String,
+        /// JSON arguments, e.g. '{"project":"example.com"}'
+        #[arg(default_value = "{}")]
+        args: String,
+    },
+    /// Run an MCP server on stdio (for Claude Code, Claude Desktop and other agents)
+    Mcp,
+    /// Run the local HTTP API (GET /tools, POST /tools/{name})
+    Serve {
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long, default_value_t = 7878)]
+        port: u16,
     },
     /// Run read-only SQL against a crawled project
     Query {
@@ -88,7 +110,7 @@ struct CrawlArgs {
     /// Requests per second (politeness cap; robots.txt Crawl-delay wins if slower)
     #[arg(long, default_value_t = 5.0)]
     rps: f64,
-    #[arg(long, default_value = DEFAULT_UA)]
+    #[arg(long, default_value = tools::DEFAULT_UA)]
     user_agent: String,
     /// Ignore robots.txt. Only with the site owner's permission.
     #[arg(long)]
@@ -162,7 +184,33 @@ async fn main() -> Result<()> {
             );
             Ok(())
         }
-        Cmd::Report { project, out, json } => {
+        Cmd::Tools => {
+            println!("{}", serde_json::to_string_pretty(&tools::list())?);
+            Ok(())
+        }
+        Cmd::Tool { name, args } => {
+            let args: serde_json::Value =
+                serde_json::from_str(&args).context("tool arguments must be JSON")?;
+            let result = tokio::task::spawn_blocking(move || tools::call(&name, &args)).await?;
+            match result {
+                Ok(v) => {
+                    println!("{}", serde_json::to_string_pretty(&v)?);
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("{}", serde_json::json!({"error": format!("{e:#}")}));
+                    std::process::exit(1);
+                }
+            }
+        }
+        Cmd::Mcp => tokio::task::spawn_blocking(mcp::serve).await?,
+        Cmd::Serve { host, port } => serve::serve(format!("{host}:{port}").parse()?).await,
+        Cmd::Report {
+            project,
+            out,
+            json,
+            notes,
+        } => {
             let analysed = query::run(
                 &project,
                 "SELECT 1 FROM information_schema.tables WHERE table_name = 'page_metrics'",
@@ -178,7 +226,11 @@ async fn main() -> Result<()> {
                     },
                 )?;
             }
-            let path = report::run(&project, out, json)?;
+            let notes = notes
+                .map(std::fs::read_to_string)
+                .transpose()
+                .context("reading --notes")?;
+            let path = report::run(&project, out, json, notes.as_deref())?;
             println!("Report written to {}", path.display());
             Ok(())
         }

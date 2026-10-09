@@ -1,0 +1,12 @@
+{
+  "name": "sitecannon",
+  "description": "Website analysis for rebuilds: crawl, IA, content and SEO migration analysis, client reports",
+  "owner": { "name": "Federico Valla", "url": "https://github.com/vallafederico" },
+  "plugins": [
+    {
+      "name": "sitecannon",
+      "source": "./plugin",
+      "description": "Agent tools (MCP) and skills to audit a website before a rebuild and produce client reports"
+    }
+  ]
+}

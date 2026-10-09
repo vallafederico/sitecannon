@@ -269,3 +269,13 @@ table.heatmap td.step-3, table.heatmap td.step-4 { color: #fff; }
 .block { border: 1px solid var(--border); border-left: 6px solid var(--other); border-radius: 6px; padding: 8px 10px; background: var(--surface-1); display: flex; flex-direction: column; gap: 2px; justify-content: center; }
 .block-heading { overflow-wrap: anywhere; }
 .block-meta { font-size: 12px; }
+
+/* Strategy brief */
+.notes-card { border-left: 3px solid var(--accent); }
+.notes { max-width: 860px; line-height: 1.6; }
+.notes h1 { font-size: 20px; margin: 8px 0; }
+.notes h2 { font-size: 17px; margin: 18px 0 6px; }
+.notes h3 { font-size: 15px; margin: 14px 0 4px; }
+.notes p, .notes li { color: var(--text-primary); }
+.notes table { margin: 8px 0; }
+.notes code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }

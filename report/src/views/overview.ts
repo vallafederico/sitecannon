@@ -1,3 +1,6 @@
+import DOMPurify from "dompurify";
+import { marked } from "marked";
+
 import { barChart, columnChart, type Datum } from "../charts";
 import type { ReportData, Severity } from "../types";
 import { fmt, h, section, severityBadge } from "../ui";
@@ -21,6 +24,14 @@ export function overview(d: ReportData): HTMLElement[] {
   const issueCount = (sev: Severity) => d.issues.filter((i) => i.severity === sev && i.total > 0).length;
 
   const out: HTMLElement[] = [];
+
+  if (d.notes?.trim()) {
+    // The brief is markdown from the analyst or agent; sanitise before it becomes HTML.
+    const body = h("div", { class: "notes" });
+    body.innerHTML = DOMPurify.sanitize(marked.parse(d.notes, { async: false }) as string);
+    body.querySelectorAll("a[href]").forEach((a) => { a.setAttribute("target", "_blank"); a.setAttribute("rel", "noopener noreferrer"); });
+    out.push(h("section", { class: "card notes-card" }, h("h2", {}, "Strategy brief"), body));
+  }
 
   const chips = h("div", { class: "chips" });
   for (const pl of d.site.platform ?? []) chips.append(h("span", { class: "chip" }, pl));

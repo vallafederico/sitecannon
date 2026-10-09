@@ -92,4 +92,6 @@ export interface ReportData {
   topics: Topic[];
   sections: Sections;
   issues: Issue[];
+  /** Strategy brief in markdown, written by an analyst or agent (`report --notes`). */
+  notes?: string | null;
 }

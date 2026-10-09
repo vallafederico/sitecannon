@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sitecannon": {
+      "command": "sitecannon",
+      "args": ["mcp"]
+    }
+  }
+}

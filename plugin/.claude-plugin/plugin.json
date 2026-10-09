@@ -1,0 +1,20 @@
+{
+  "name": "sitecannon",
+  "displayName": "SiteCannon",
+  "version": "0.1.0",
+  "description": "Study a website before you rebuild it: crawl, sitemaps, IA, content, SEO migration risk and single-file client reports. Needs the `sitecannon` binary on PATH.",
+  "author": {
+    "name": "Federico Valla",
+    "url": "https://github.com/vallafederico"
+  },
+  "homepage": "https://github.com/vallafederico/sitecannon",
+  "repository": "https://github.com/vallafederico/sitecannon",
+  "keywords": [
+    "seo",
+    "information-architecture",
+    "site-audit",
+    "migration",
+    "crawler",
+    "content-audit"
+  ]
+}

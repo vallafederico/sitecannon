@@ -13,17 +13,17 @@ const TEMPLATE: &str = include_str!("../report/dist/index.html");
 const PLACEHOLDER: &str = "\"__SITECANNON_DATA__\"";
 const ISSUE_ROW_LIMIT: usize = 1000;
 
-struct Issue {
-    id: &'static str,
-    title: &'static str,
-    severity: &'static str,
-    description: &'static str,
-    sql: &'static str,
+pub struct Issue {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub severity: &'static str,
+    pub description: &'static str,
+    pub sql: &'static str,
 }
 
 /// Every check the report lists. Plain SQL over the project database, so each one can be
 /// reproduced with `sitecannon query`.
-const ISSUES: &[Issue] = &[
+pub const ISSUES: &[Issue] = &[
     Issue {
         id: "broken_links",
         title: "Broken internal links",
@@ -175,7 +175,7 @@ fn column(t: &Table, name: &str) -> Vec<Value> {
 }
 
 /// Writes the report (or, with `json_only`, just its data) and returns the output path.
-pub fn run(project: &Path, out: Option<PathBuf>, json_only: bool) -> Result<PathBuf> {
+pub fn run(project: &Path, out: Option<PathBuf>, json_only: bool, notes: Option<&str>) -> Result<PathBuf> {
     let q = |sql: &str| query::run(project, sql).with_context(|| format!("report query failed: {sql}"));
 
     let pages = q("SELECT m.url, p.title, p.final_status AS status, p.indexability, m.template_id AS template, pt.topic_id AS topic,
@@ -364,6 +364,8 @@ pub fn run(project: &Path, out: Option<PathBuf>, json_only: bool) -> Result<Path
         "topics": topics_json,
         "sections": sections_json,
         "issues": issues,
+        // Agent- or analyst-written strategy brief (markdown), shown first on the overview.
+        "notes": notes,
     });
 
     let default_name = if json_only { "report.json" } else { "report.html" };
