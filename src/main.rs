@@ -109,11 +109,12 @@ enum AnalyticsCmd {
         #[arg(long, default_value_t = 90)]
         days: u32,
     },
-    /// Import a GA4 or Search Console CSV export (kind detected from the columns)
+    /// Import GA4 / Search Console exports: a CSV, XLSX, Search Console zip, or a folder of them
     Import {
         project: PathBuf,
+        /// File, zip or folder
         file: PathBuf,
-        /// ga4_landing, ga4_pages, gsc_pages or gsc_queries
+        /// Force the kind for a single file: ga4_landing, ga4_pages, gsc_pages, gsc_queries, gsc_site_queries
         #[arg(long)]
         kind: Option<String>,
         #[arg(long)]
@@ -123,6 +124,8 @@ enum AnalyticsCmd {
     Status { project: PathBuf },
     /// What works and what doesn't (JSON)
     Performance { project: PathBuf },
+    /// Print client-ready instructions for granting access or sending exports
+    Guide,
 }
 
 #[derive(clap::Args)]
@@ -234,9 +237,15 @@ async fn main() -> Result<()> {
                 } => analytics::import(&project, &file, kind.as_deref(), append),
                 AnalyticsCmd::Status { project } => analytics::status(&project),
                 AnalyticsCmd::Performance { project } => analytics::performance(&project),
+                AnalyticsCmd::Guide => {
+                    print!("{}", analytics::EXPORT_GUIDE);
+                    Ok(serde_json::Value::Null)
+                }
             })
             .await??;
-            println!("{}", serde_json::to_string_pretty(&result)?);
+            if !result.is_null() {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
             Ok(())
         }
         Cmd::Tools => {

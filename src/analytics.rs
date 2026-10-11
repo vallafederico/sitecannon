@@ -14,6 +14,9 @@ use serde_json::{Value, json};
 
 use crate::store::DB_FILE;
 
+/// Client-facing instructions for granting access or sending GA4 / Search Console exports.
+pub const EXPORT_GUIDE: &str = include_str!("../plugin/skills/analytics-setup/export-guide.md");
+
 const GA_SCOPE: &str = "https://www.googleapis.com/auth/analytics.readonly";
 const GSC_SCOPE: &str = "https://www.googleapis.com/auth/webmasters.readonly";
 const GA_PAGE_ROWS: usize = 100_000;
@@ -34,6 +37,8 @@ CREATE TABLE IF NOT EXISTS ga_pages (
     host VARCHAR, path VARCHAR, views DOUBLE, active_users DOUBLE, engagement_seconds DOUBLE, key_events DOUBLE
 );
 CREATE TABLE IF NOT EXISTS gsc_pages (page_url VARCHAR, clicks DOUBLE, impressions DOUBLE, ctr DOUBLE, position DOUBLE);
+-- Search Console queries without a page (the web export's Queries.csv).
+CREATE TABLE IF NOT EXISTS gsc_site_queries (query VARCHAR, clicks DOUBLE, impressions DOUBLE, ctr DOUBLE, position DOUBLE);
 CREATE TABLE IF NOT EXISTS gsc_queries (
     page_url VARCHAR, query VARCHAR, clicks DOUBLE, impressions DOUBLE, ctr DOUBLE, position DOUBLE
 );
@@ -659,28 +664,39 @@ fn split_url(v: &str) -> (String, String) {
 
 /// Imports a GA4 or Search Console CSV export. The kind is detected from the column names
 /// (or forced with `kind`: ga4_landing, ga4_pages, gsc_pages, gsc_queries).
-pub fn import(project: &Path, file: &Path, kind: Option<&str>, append: bool) -> Result<Value> {
-    let raw = std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?;
+/// Imports one export file's text. Returns `Ok(None)` when the file isn't usage data we
+/// recognise (e.g. Search Console's Countries.csv), so batch imports can skip it.
+fn import_text(
+    conn: &Connection,
+    name: &str,
+    raw: &str,
+    kind: Option<&str>,
+    append: bool,
+) -> Result<Option<Value>> {
     // GA4 exports name their range in the comment header: "# Start date: 20260101".
     let header_date = |label: &str| -> String {
         raw.lines()
             .take_while(|l| l.starts_with('#') || l.trim().is_empty())
-            .find_map(|l| l.to_lowercase().split_once(label).map(|(_, v)| v.trim_start_matches(':').trim().to_string()))
-            .map(|d| if d.len() == 8 && d.chars().all(|c| c.is_ascii_digit()) { format!("{}-{}-{}", &d[..4], &d[4..6], &d[6..]) } else { d })
+            .find_map(|l| {
+                l.to_lowercase()
+                    .split_once(label)
+                    .map(|(_, v)| v.trim_start_matches(':').trim().to_string())
+            })
+            .map(|d| {
+                if d.len() == 8 && d.chars().all(|c| c.is_ascii_digit()) {
+                    format!("{}-{}-{}", &d[..4], &d[4..6], &d[6..])
+                } else {
+                    d
+                }
+            })
             .unwrap_or_default()
     };
     let (date_start, date_end) = (header_date("start date"), header_date("end date"));
-    // GA4 exports start with "#" comment lines and a blank line before the header.
-    let body: String = raw
-        .lines()
-        .skip_while(|l| l.starts_with('#') || l.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut rdr = csv::ReaderBuilder::new()
-        .flexible(true)
-        .from_reader(body.as_bytes());
-    let headers: Vec<String> = rdr.headers()?.iter().map(norm_header).collect();
-    let records: Vec<csv::StringRecord> = rdr.records().collect::<Result<_, _>>()?;
+    // A download can hold several tables (e.g. chart data, then the page table), separated by
+    // "#" comment lines and blank lines. Use the page- or query-level table with the most rows.
+    let Some((headers, records)) = best_table(raw) else {
+        return Ok(None);
+    };
     let get = |r: &csv::StringRecord, i: Option<usize>| {
         i.and_then(|i| r.get(i)).unwrap_or_default().trim().to_string()
     };
@@ -709,7 +725,9 @@ pub fn import(project: &Path, file: &Path, kind: Option<&str>, append: bool) -> 
     let has = |a: &[&str]| find(&headers, a).is_some();
     let detected = kind.map(String::from).unwrap_or_else(|| {
         if has(&["clicks"]) && has(&["impressions"]) {
-            if query_col.is_some() && path_col.is_some() {
+            if query_col.is_some() && path_col.is_none() {
+                "gsc_site_queries".into()
+            } else if query_col.is_some() && path_col.is_some() {
                 "gsc_queries".into()
             } else {
                 "gsc_pages".into()
@@ -720,12 +738,53 @@ pub fn import(project: &Path, file: &Path, kind: Option<&str>, append: bool) -> 
             "ga4_pages".into()
         }
     });
-    let path_col =
-        path_col.ok_or_else(|| anyhow!("no page/landing page/URL column found in {:?}", headers))?;
+    let is_usage = has(&[
+        "sessions",
+        "views",
+        "screen page views",
+        "screenpageviews",
+        "pageviews",
+        "clicks",
+    ]);
+    if !is_usage || (path_col.is_none() && detected != "gsc_site_queries") {
+        if kind.is_some() {
+            bail!("{name}: no page/landing page/URL column found in {headers:?}");
+        }
+        return Ok(None);
+    }
+    let path_col = path_col.unwrap_or(0);
 
-    let conn = open(project)?;
     let mut n = 0usize;
     match detected.as_str() {
+        "gsc_site_queries" => {
+            if !append {
+                conn.execute_batch("DELETE FROM gsc_site_queries;")?;
+            }
+            let (q, c, i, ctr, pos) = (
+                query_col,
+                find(&headers, &["clicks"]),
+                find(&headers, &["impressions"]),
+                find(&headers, &["ctr", "click through rate"]),
+                find(&headers, &["position", "average position", "avg. position"]),
+            );
+            let mut app = conn.appender("gsc_site_queries")?;
+            for r in &records {
+                let query = get(r, q);
+                if query.is_empty() {
+                    continue;
+                }
+                let (clicks, impressions) = (num(&get(r, c)), num(&get(r, i)));
+                let ctr_v = if ctr.is_some() {
+                    num(&get(r, ctr))
+                } else if impressions > 0.0 {
+                    clicks / impressions
+                } else {
+                    0.0
+                };
+                app.append_row(params![query, clicks, impressions, ctr_v, num(&get(r, pos))])?;
+                n += 1;
+            }
+        }
         "ga4_landing" => {
             if !append {
                 conn.execute_batch("DELETE FROM ga_landing; DELETE FROM ga_channels;")?;
@@ -879,7 +938,9 @@ pub fn import(project: &Path, file: &Path, kind: Option<&str>, append: bool) -> 
                 n += 1;
             }
         }
-        other => bail!("unknown kind {other}; use ga4_landing, ga4_pages, gsc_pages or gsc_queries"),
+        other => bail!(
+            "unknown kind {other}; use ga4_landing, ga4_pages, gsc_pages, gsc_queries or gsc_site_queries"
+        ),
     }
     let source = detected.as_str();
     let total: i64 = conn.query_row(
@@ -889,24 +950,236 @@ pub fn import(project: &Path, file: &Path, kind: Option<&str>, append: bool) -> 
                 "ga4_landing" => "ga_landing",
                 "ga4_pages" => "ga_pages",
                 "gsc_pages" => "gsc_pages",
+                "gsc_site_queries" => "gsc_site_queries",
                 _ => "gsc_queries",
             }
         ),
         [],
         |r| r.get(0),
     )?;
-    let detail = format!(
-        "{} ({})",
-        file.file_name()
-            .map(|f| f.to_string_lossy().to_string())
-            .unwrap_or_default(),
-        detected
+    let detail = format!("{name} ({detected})");
+    if !append || !has_meta(conn, source)? {
+        record_meta(
+            conn,
+            source,
+            &detail,
+            (&date_start, &date_end),
+            total as usize,
+            "csv",
+        )?;
+    }
+    Ok(Some(
+        json!({"file": name, "kind": detected, "rows_imported": n, "columns": headers}),
+    ))
+}
+
+/// Splits export text into its tables and returns the page- or query-level one with the most rows.
+fn best_table(raw: &str) -> Option<(Vec<String>, Vec<csv::StringRecord>)> {
+    let mut blocks: Vec<Vec<&str>> = vec![vec![]];
+    for line in raw.lines() {
+        if line.starts_with('#') || line.trim().is_empty() {
+            if !blocks.last().is_some_and(|b| b.is_empty()) {
+                blocks.push(vec![]);
+            }
+        } else {
+            blocks.last_mut()?.push(line);
+        }
+    }
+    let page_cols = [
+        "landing page",
+        "page",
+        "url",
+        "address",
+        "query",
+        "queries",
+        "top",
+    ];
+    blocks
+        .into_iter()
+        .filter(|b| b.len() >= 2)
+        .filter_map(|b| {
+            let text = b.join("\n");
+            let delim = if b[0].matches('\t').count() > b[0].matches(',').count() {
+                b'\t'
+            } else {
+                b','
+            };
+            let mut rdr = csv::ReaderBuilder::new()
+                .flexible(true)
+                .delimiter(delim)
+                .from_reader(text.as_bytes());
+            let headers: Vec<String> = rdr.headers().ok()?.iter().map(norm_header).collect();
+            let records: Vec<csv::StringRecord> = rdr.records().filter_map(Result::ok).collect();
+            let relevant = headers.iter().any(|h| page_cols.iter().any(|c| h.contains(c)));
+            relevant.then_some((headers, records))
+        })
+        .max_by_key(|(_, r)| r.len())
+}
+
+/// Reads every table-like file an export bundle can contain, as (name, CSV text) pairs:
+/// a CSV/TSV file, an Excel/ODS workbook (one entry per sheet), a zip (Search Console's
+/// "Export → CSV" download), or a folder of any of these.
+fn export_files(path: &Path) -> Result<Vec<(String, String)>> {
+    let name = path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if path.is_dir() {
+        let mut out = Vec::new();
+        let mut entries: Vec<_> = std::fs::read_dir(path)?.flatten().map(|e| e.path()).collect();
+        entries.sort();
+        for p in entries {
+            let e = p
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if ["csv", "tsv", "txt", "xlsx", "xls", "ods", "zip"].contains(&e.as_str()) {
+                out.extend(export_files(&p)?);
+            }
+        }
+        return Ok(out);
+    }
+    match ext.as_str() {
+        "zip" => {
+            let mut archive = zip::ZipArchive::new(std::fs::File::open(path)?)?;
+            let mut out = Vec::new();
+            for i in 0..archive.len() {
+                let mut f = archive.by_index(i)?;
+                let inner = f.name()?.to_string();
+                if inner.to_lowercase().ends_with(".csv") && !inner.starts_with("__MACOSX") {
+                    let mut text = String::new();
+                    std::io::Read::read_to_string(&mut f, &mut text)?;
+                    out.push((format!("{name}/{inner}"), text));
+                }
+            }
+            Ok(out)
+        }
+        "xlsx" | "xls" | "ods" => {
+            use calamine::Reader;
+            let mut wb =
+                calamine::open_workbook_auto(path).with_context(|| format!("opening {}", path.display()))?;
+            let mut out = Vec::new();
+            for sheet in wb.sheet_names().to_vec() {
+                let Ok(range) = wb.worksheet_range(&sheet) else {
+                    continue;
+                };
+                let mut w = csv::Writer::from_writer(vec![]);
+                for row in range.rows() {
+                    w.write_record(row.iter().map(|c| c.to_string()))?;
+                }
+                out.push((format!("{name}/{sheet}"), String::from_utf8(w.into_inner()?)?));
+            }
+            Ok(out)
+        }
+        _ => Ok(vec![(
+            name,
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
+        )]),
+    }
+}
+
+/// Imports GA4 / Search Console exports: one file, a workbook, a zip or a folder. Each file's
+/// kind is detected from its columns (or forced with `kind` for a single file); files that
+/// aren't page- or query-level usage data are listed as skipped.
+pub fn import(project: &Path, path: &Path, kind: Option<&str>, append: bool) -> Result<Value> {
+    let files = export_files(path)?;
+    anyhow::ensure!(
+        !files.is_empty(),
+        "no CSV, TSV, Excel or zip files found at {}",
+        path.display()
     );
-    if !append || !has_meta(&conn, source)? {
-        record_meta(&conn, source, &detail, (&date_start, &date_end), total as usize, "csv")?;
+    let conn = open(project)?;
+    let mut imported = Vec::new();
+    let mut skipped = Vec::new();
+    let mut seen_kinds: Vec<String> = Vec::new();
+    for (name, text) in &files {
+        // Within one batch, a second file of the same kind adds to the first.
+        let kind_hint = if files.len() == 1 { kind } else { None };
+        let detected_append = append
+            || seen_kinds
+                .iter()
+                .any(|k| name_kind_guess(text).as_deref() == Some(k.as_str()));
+        match import_text(&conn, name, text, kind_hint, detected_append)? {
+            Some(r) => {
+                seen_kinds.push(r["kind"].as_str().unwrap_or_default().to_string());
+                imported.push(r);
+            }
+            None => skipped.push(json!({"file": name, "reason": "not page- or query-level usage data"})),
+        }
     }
     refresh_views(&conn)?;
-    Ok(json!({"kind": detected, "rows_imported": n, "columns": headers, "matched": coverage(&conn)?}))
+    Ok(
+        json!({"imported": imported, "skipped": skipped, "matched": coverage(&conn)?, "limits": export_limits(&conn)?}),
+    )
+}
+
+/// The kind a file would be detected as, without importing it.
+fn name_kind_guess(text: &str) -> Option<String> {
+    let (headers, _) = best_table(text)?;
+    let has = |a: &[&str]| find(&headers, a).is_some();
+    let page = headers.iter().any(|h| {
+        ["landing page", "page", "url", "address"]
+            .iter()
+            .any(|c| h.contains(c))
+    });
+    Some(
+        if has(&["clicks"]) && has(&["impressions"]) {
+            match (has(&["query", "top queries", "queries"]), page) {
+                (true, false) => "gsc_site_queries",
+                (true, true) => "gsc_queries",
+                _ => "gsc_pages",
+            }
+        } else if has(&["sessions"]) {
+            "ga4_landing"
+        } else {
+            "ga4_pages"
+        }
+        .to_string(),
+    )
+}
+
+/// Warnings when an imported export looks truncated by the tool's own row cap.
+fn export_limits(conn: &Connection) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for (table, cap, what) in [
+        (
+            "gsc_pages",
+            1000,
+            "Search Console's web export caps Pages at 1,000 rows, so lower-traffic pages are missing",
+        ),
+        (
+            "gsc_site_queries",
+            1000,
+            "Search Console's web export caps Queries at 1,000 rows, so long-tail queries are missing",
+        ),
+        (
+            "ga_landing",
+            100_000,
+            "GA4 downloads cap at 100,000 rows, so the smallest landing pages are missing",
+        ),
+        (
+            "ga_pages",
+            100_000,
+            "GA4 downloads cap at 100,000 rows, so the smallest pages are missing",
+        ),
+    ] {
+        let csv_loaded: bool = conn.query_row(
+            "SELECT count(*) > 0 FROM analytics_meta WHERE method = 'csv' AND source LIKE concat(?, '%')",
+            params![if table.starts_with("gsc") { "gsc" } else { "ga4" }],
+            |r| r.get(0),
+        )?;
+        let n: i64 = conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))?;
+        if csv_loaded && n >= cap {
+            out.push(format!(
+                "{table} has {n} rows: {what}. The direct fetch has no such cap."
+            ));
+        }
+    }
+    Ok(out)
 }
 
 /// Sources are "ga4"/"gsc" for API fetches and the import kind (ga4_landing, gsc_pages…) for
@@ -930,8 +1203,13 @@ pub fn status(project: &Path) -> Result<Value> {
                       "date_end": r.get::<_, Option<String>>(3)?, "rows": r.get::<_, i64>(4)?, "method": r.get::<_, String>(5)?, "loaded_at": r.get::<_, String>(6)?}))
         })?
         .collect::<Result<_, _>>()?;
+    let limits = if sources.is_empty() {
+        vec![]
+    } else {
+        export_limits(&conn)?
+    };
     Ok(
-        json!({"sources": sources, "matched": if sources.is_empty() { Value::Null } else { coverage(&conn)? }, "google_auth": auth_status()}),
+        json!({"sources": sources, "matched": if sources.is_empty() { Value::Null } else { coverage(&conn)? }, "limits": limits, "google_auth": auth_status()}),
     )
 }
 
@@ -988,6 +1266,9 @@ pub fn performance(project: &Path) -> Result<Value> {
     let has_ga = conn.query_row("SELECT count(*) > 0 FROM ga_landing", [], |r| r.get::<_, bool>(0))?;
     let has_gsc = conn.query_row("SELECT count(*) > 0 FROM gsc_pages", [], |r| r.get::<_, bool>(0))?;
     let has_q = conn.query_row("SELECT count(*) > 0 FROM gsc_queries", [], |r| {
+        r.get::<_, bool>(0)
+    })?;
+    let has_site_q = conn.query_row("SELECT count(*) > 0 FROM gsc_site_queries", [], |r| {
         r.get::<_, bool>(0)
     })?;
 
@@ -1092,18 +1373,27 @@ pub fn performance(project: &Path) -> Result<Value> {
             "SELECT query, page_url, round(impressions) AS impressions, round(clicks) AS clicks, round(position, 1) AS position FROM gsc_queries
              WHERE position BETWEEN 4 AND 20 AND impressions >= greatest(20, (SELECT quantile_cont(impressions, 0.9) FROM gsc_queries))
              ORDER BY impressions DESC LIMIT 30".into())?;
+    } else if has_site_q {
+        // The web export has queries without pages; still useful at query level.
+        add("striking_distance", "Queries ranking 4–20 with meaningful impressions (from the Search Console export, which doesn't say which page ranks; the direct fetch does). Small improvements can move these onto page one.",
+            "SELECT query, round(impressions) AS impressions, round(clicks) AS clicks, round(position, 1) AS position FROM gsc_site_queries
+             WHERE position BETWEEN 4 AND 20 AND impressions >= greatest(20, (SELECT quantile_cont(impressions, 0.75) FROM gsc_site_queries))
+             ORDER BY impressions DESC LIMIT 30".into())?;
     }
+
+    let mut caveats = vec![
+        "Analytics undercounts where consent banners block tracking; compare ratios between pages rather than absolute totals.".to_string(),
+        "Section-type comparisons are correlations: pages with a section type also differ in other ways.".to_string(),
+        "URLs are matched on path (case-insensitive, query strings and trailing slashes ignored).".to_string(),
+        "Typical-CTR benchmarks are approximate industry averages.".to_string(),
+    ];
+    caveats.extend(export_limits(&conn)?);
 
     Ok(json!({
         "sources": sources, "totals": totals.first(), "matched": coverage(&conn)?,
         "by_template": by_template, "by_topic": by_topic, "by_depth": by_depth, "by_section": by_section,
         "opportunities": opp,
-        "caveats": [
-            "Analytics undercounts where consent banners block tracking; compare ratios between pages rather than absolute totals.",
-            "Section-type comparisons are correlations: pages with a section type also differ in other ways.",
-            "URLs are matched on path (case-insensitive, query strings and trailing slashes ignored).",
-            "Typical-CTR benchmarks are approximate industry averages."
-        ],
+        "caveats": caveats,
     }))
 }
 
@@ -1161,6 +1451,19 @@ mod tests {
         let g = parse_gsc_rows(&gsc);
         assert_eq!(g[0].0[1], "bjj software");
         assert_eq!(g[0].1, [3.0, 100.0, 0.03, 7.2]);
+    }
+
+    #[test]
+    fn picks_the_page_table_from_a_multi_table_export() {
+        let raw = "# ----\n# Landing page\n# Start date: 20260101\n# ----\n\nNth day,Sessions\n0000,10\n0001,12\n0002,9\n\n# ----\nLanding page,Sessions,Key events\n/,100,2\n/pricing,40,5\n";
+        let (headers, rows) = best_table(raw).unwrap();
+        assert_eq!(headers[0], "landing page");
+        assert_eq!(rows.len(), 2);
+        let tsv = "Top pages\tClicks\tImpressions\nhttps://a.com/\t5\t100\n";
+        assert_eq!(
+            best_table(tsv).unwrap().0,
+            vec!["top pages", "clicks", "impressions"]
+        );
     }
 
     #[test]

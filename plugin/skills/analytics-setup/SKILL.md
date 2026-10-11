@@ -43,13 +43,12 @@ Then find the identifiers:
 Call `fetch_analytics` with `{"project": "...", "ga4_property": "123456789", "gsc_site": "sc-domain:example.com", "days": 90}`.
 Use 90 days by default; use 365+ for seasonal businesses or a migration baseline (Search Console keeps 16 months).
 
-**B. Import CSV exports (no credentials; ideal when a client sends files).**
-`import_analytics` with `{"project": "...", "file": "/path/export.csv"}`. The kind is detected from the columns. Ask the client for:
-- **GA4 landing pages:** Reports → Engagement → Landing page (or an Exploration) with *Landing page + query string*, *Sessions*, *Engaged sessions*, *Key events* and optionally *Session default channel group* and *Total revenue*. Share → Download file → CSV.
-- **GA4 pages (optional):** Pages and screens with *Page path*, *Views*, *Active users*, *User engagement*.
-- **Search Console:** Performance → Pages tab → Export → CSV, then use the `Pages.csv` from the download. The UI export has no page-by-query breakdown; for striking-distance queries, use the direct fetch.
+**B. Exports (no credentials; for when you can't connect any other way).**
+1. Get the client-ready instructions: `analytics_export_guide` (or `sitecannon analytics guide`). It explains both granting read-only access and exporting exactly the right reports: GA4 landing pages and pages, and the Search Console performance zip. Draft the request email around it in the user's voice, adapted to the client.
+2. When the files arrive, import them as they are: `import_analytics` with `{"project": "...", "file": "/path/to/folder-or-file"}`. It accepts single CSV/TSV files, Excel or Google Sheets downloads (.xlsx), Search Console's zip, or a whole folder. Each file is recognised from its columns, irrelevant ones (countries, devices, dates…) are skipped, and the result lists what was imported and skipped.
+3. Read `limits` in the result. Search Console's web export holds at most 1,000 pages and 1,000 queries, and GA4 downloads at most 100,000 rows. When a cap is hit, say so and suggest read-only access for full data.
 
-Use `append: true` to combine several files of the same kind.
+Exports don't include Search Console's page-by-query breakdown, so striking-distance queries are listed without the ranking page. Use `append: true` to add files to what's already loaded.
 
 ## 3. Check the match
 

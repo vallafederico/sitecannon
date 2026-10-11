@@ -137,15 +137,20 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "import_analytics",
-        description: "Import a GA4 or Search Console CSV export into a project (no credentials needed). The kind is detected from the columns: GA4 landing pages (sessions…), GA4 pages (views…), Search Console pages or queries (clicks, impressions…).",
+        description: "Import GA4 / Search Console exports into a project (no credentials needed). Accepts a CSV/TSV file, an Excel or Google Sheets download (.xlsx), Search Console's export zip, or a folder of any of these. Each file's kind is detected from its columns (GA4 landing pages, GA4 pages, Search Console pages, queries, or page+query); irrelevant files (countries, devices…) are skipped. Warns when an export hit its row cap.",
         schema: || {
             json!({"type": "object", "required": ["project", "file"], "properties": {
                 "project": project_prop(),
-                "file": {"type": "string", "description": "Path to the CSV file"},
-                "kind": {"type": "string", "enum": ["ga4_landing", "ga4_pages", "gsc_pages", "gsc_queries"], "description": "Override detection"},
+                "file": {"type": "string", "description": "Path to a CSV/TSV/XLSX file, a zip, or a folder"},
+                "kind": {"type": "string", "enum": ["ga4_landing", "ga4_pages", "gsc_pages", "gsc_queries", "gsc_site_queries"], "description": "Override detection (single files only)"},
                 "append": {"type": "boolean", "default": false, "description": "Add to existing rows instead of replacing them"}
             }})
         },
+    },
+    Tool {
+        name: "analytics_export_guide",
+        description: "Client-ready instructions (markdown) for either granting read-only GA4 / Search Console access or sending the exact exports SiteCannon can import. Use it to draft the request email when the agency can't connect directly.",
+        schema: || json!({"type": "object", "properties": {}}),
     },
     Tool {
         name: "performance",
@@ -323,6 +328,7 @@ pub fn call(name: &str, args: &Value) -> Result<Value> {
             let append = args.get("append").and_then(Value::as_bool).unwrap_or(false);
             analytics::import(&p, Path::new(file), arg_str(args, "kind"), append)
         }
+        "analytics_export_guide" => Ok(json!({"guide": analytics::EXPORT_GUIDE})),
         "performance" => {
             let p = project_arg(args)?;
             ensure_analysed(&p)?;

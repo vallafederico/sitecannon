@@ -33,7 +33,8 @@ Projects live under `$SITECANNON_HOME` (default `./projects`). A project is name
 | `report` | Write the single-file HTML report; `notes` embeds your markdown brief at the top |
 | `analytics_status` | Which usage data is loaded (GA4, Search Console), date range, match rate, credentials available |
 | `fetch_analytics` | Pull GA4 and/or Search Console data with the user's Google credentials |
-| `import_analytics` | Load GA4 / Search Console CSV exports (kind detected from columns) |
+| `import_analytics` | Load GA4 / Search Console exports: CSV, XLSX, Search Console zip, or a folder (kinds detected) |
+| `analytics_export_guide` | Client-ready instructions for granting access or sending exports |
 | `performance` | What works and what doesn't: by template, topic, depth, section type, plus opportunity lists |
 
 ## Concepts

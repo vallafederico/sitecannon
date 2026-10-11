@@ -78,7 +78,8 @@ sitecannon reextract projects/example.com    # re-run extraction on stored HTML 
 
 # Real usage data (optional)
 sitecannon analytics fetch projects/example.com --ga4 123456789 --gsc sc-domain:example.com --days 90
-sitecannon analytics import projects/example.com landing-pages.csv     # GA4 / Search Console CSV exports
+sitecannon analytics import projects/example.com ./client-exports/    # a CSV, XLSX, Search Console zip, or a folder
+sitecannon analytics guide                                             # client-ready "how to send us your data"
 sitecannon analytics performance projects/example.com                  # what works, what doesn't (JSON)
 ```
 
@@ -91,12 +92,14 @@ sitecannon analytics performance projects/example.com                  # what wo
 
 Access is read-only, and the data stays in the local project database.
 
+**Can't connect?** Ask the client for exports. `sitecannon analytics guide` prints ready-to-send instructions: either grant read-only access, or download two GA4 reports and the Search Console zip. Then point `analytics import` at whatever arrives (CSV, Excel, the zip, or a folder). Each file is recognised from its columns, irrelevant files are skipped, and you're warned when an export hit Search Console's 1,000-row or GA4's 100,000-row cap.
+
 Crawl options: `--max-pages` (1000), `--max-depth` (50), `--concurrency` (8), `--rps` (5),
 `--max-query-variants` (25), `--no-sitemaps`, `--no-html`, `--ignore-robots` (only with the owner's permission), `--force`.
 
 ### As an agent (tools)
 
-The same 16 tools are available three ways. All take JSON arguments and return JSON.
+The same 17 tools are available three ways. All take JSON arguments and return JSON.
 
 | Tool | What it returns |
 |---|---|
@@ -113,7 +116,8 @@ The same 16 tools are available three ways. All take JSON arguments and return J
 | `report` | Write the HTML report, optionally with a markdown brief (`notes`) |
 | `analytics_status` | Which usage data is loaded, its date range and match rate, and whether Google credentials are available |
 | `fetch_analytics` | Pull GA4 and Search Console data with the user's Google credentials |
-| `import_analytics` | Load GA4 / Search Console CSV exports |
+| `import_analytics` | Load GA4 / Search Console exports: CSV, XLSX, the Search Console zip, or a folder |
+| `analytics_export_guide` | Client-ready instructions for granting access or sending the right exports |
 | `performance` | What works and what doesn't, from usage data joined to the crawl |
 
 ```sh
